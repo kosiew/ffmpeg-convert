@@ -15,6 +15,32 @@ class Mp4ToMkvTests(unittest.TestCase):
     def test_command_registration(self):
         command_names = [command.name for command in ffmpeg.app.registered_commands]
         self.assertIn("mp4-to-mkv", command_names)
+        self.assertIn("mov-to-mkv", command_names)
+
+    def test_cli_converts_recursive_mov_only_and_preserves_timestamp(self):
+        with tempfile.TemporaryDirectory() as root:
+            child = os.path.join(root, "child")
+            os.makedirs(child)
+            sources = [os.path.join(root, "a.mov"), os.path.join(root, "b.MOV"), os.path.join(child, "c.MoV")]
+            for source in sources:
+                open(source, "w").close()
+            open(os.path.join(root, "unrelated.mp4"), "w").close()
+            timestamp = 1_600_000_000
+            os.utime(sources[0], (timestamp, timestamp))
+            calls = []
+
+            def fake_run_ffmpeg(args):
+                calls.append(args)
+                open(args[-1], "w").close()
+                return True
+
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake_run_ffmpeg):
+                result = self.runner.invoke(ffmpeg.app, ["mov-to-mkv", root])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(all(args[2:6] == ["-map", "0", "-c", "copy"] for args in calls))
+            self.assertEqual(os.stat(os.path.join(root, "a.mkv")).st_mtime, timestamp)
+            self.assertFalse(os.path.exists(os.path.join(root, "unrelated.mkv")))
 
     def test_summary_uses_real_newline(self):
         with tempfile.TemporaryDirectory() as root, patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"):
@@ -49,6 +75,39 @@ class Mp4ToMkvTests(unittest.TestCase):
             self.assertTrue(all(args[2:5] == ["-map", "0", "-c"] and args[5] == "copy" for args in calls))
             self.assertEqual(os.stat(os.path.join(root, "a.mkv")).st_mtime, timestamp)
             self.assertFalse(os.path.exists(os.path.join(root, "unrelated.mkv")))
+
+    def test_nonrecursive_mov_and_skip_overwrite(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "child"))
+            for relative in ("top.MOV", "child/nested.mov"):
+                open(os.path.join(root, relative), "w").close()
+            open(os.path.join(root, "top.mkv"), "w").close()
+            calls = []
+            def fake(args):
+                calls.append(args)
+                open(args[-1], "w").close()
+                return True
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake):
+                result = self.runner.invoke(ffmpeg.app, ["mov-to-mkv", "--no-recursive", root])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("skipped 1", result.output)
+            self.assertEqual(calls, [])
+
+    def test_delete_success_and_failure_cleanup(self):
+        with tempfile.TemporaryDirectory() as root:
+            good, bad = (os.path.join(root, name) for name in ("good.mov", "bad.mov"))
+            open(good, "w").close()
+            open(bad, "w").close()
+            def fake(args):
+                open(args[-1], "w").close()
+                return args[-1].endswith("good.mkv")
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake):
+                result = self.runner.invoke(ffmpeg.app, ["mov-to-mkv", "--delete-original", root])
+            self.assertEqual(result.exit_code, 1)
+            self.assertFalse(os.path.exists(good))
+            self.assertTrue(os.path.exists(os.path.join(root, "good.mkv")))
+            self.assertTrue(os.path.exists(bad))
+            self.assertFalse(os.path.exists(os.path.join(root, "bad.mkv")))
 
     def test_no_recursive_limits_cli_to_top_folder(self):
         with tempfile.TemporaryDirectory() as root:

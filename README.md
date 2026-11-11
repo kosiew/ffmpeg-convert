@@ -4,7 +4,8 @@ Convert media files in folders with ffmpeg:
 
 - `.mov` → `.mp4` (fast stream copy, falling back to H.264/AAC re-encode)
 - `.heic` → `.jpg`
-- `.mp4` → `.mkv` via stream copy (`mp4-to-mkv` command only)
+- `.mp4` → `.mkv` via stream copy (`mp4-to-mkv`)
+- `.mov` → `.mkv` via stream copy (`mov-to-mkv`)
 
 Converted files are saved next to the originals.
 
@@ -18,6 +19,7 @@ Converted files are saved next to the originals.
 ```sh
 uv run ffmpeg.py convert folder1 folder2 ...
 uv run ffmpeg.py mp4-to-mkv folder1 folder2 ...
+uv run ffmpeg.py mov-to-mkv folder1 folder2 ...
 ```
 
 Options:

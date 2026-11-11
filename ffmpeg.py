@@ -83,7 +83,7 @@ def find_convertible_files(folder_path, recursive=True, extensions=None):
     return matches
 
 
-def convert_file(source_path, overwrite=False, delete_original=False):
+def convert_file(source_path, overwrite=False, delete_original=False, target_extension=None, converter=None):
     """
     Convert a single file to its target format, saved next to the original.
 
@@ -91,14 +91,14 @@ def convert_file(source_path, overwrite=False, delete_original=False):
     """
     base_name, ext = os.path.splitext(source_path)
     ext = ext.lower()
-    target_path = base_name + CONVERSIONS[ext]
+    target_path = base_name + (target_extension or CONVERSIONS[ext])
 
     if os.path.exists(target_path) and not overwrite:
         print(f"Skipped (already exists): {target_path}")
         return "skipped"
 
     print(f"Converting: {source_path} → {os.path.basename(target_path)}")
-    if not CONVERTERS[ext](source_path, target_path):
+    if not (converter or CONVERTERS[ext])(source_path, target_path):
         # Don't leave a partial output file behind
         if os.path.exists(target_path):
             os.remove(target_path)
@@ -115,11 +115,11 @@ def convert_file(source_path, overwrite=False, delete_original=False):
     return "converted"
 
 
-def process_folder(folder_path, recursive=True, overwrite=False, delete_original=False, extensions=None):
+def process_folder(folder_path, recursive=True, overwrite=False, delete_original=False, extensions=None, target_extension=None, converter=None):
     """Convert supported files in a folder; return counts per outcome."""
     counts = {"converted": 0, "skipped": 0, "failed": 0}
     for source_path in find_convertible_files(folder_path, recursive, extensions):
-        outcome = convert_file(source_path, overwrite, delete_original)
+        outcome = convert_file(source_path, overwrite, delete_original, target_extension, converter)
         counts[outcome] += 1
     return counts
 
@@ -173,6 +173,24 @@ def convert(
         raise typer.Exit(1)
 
 
+def run_batch(folders, recursive, overwrite, delete_original, extensions, target_extension=None, converter=None):
+    if shutil.which("ffmpeg") is None:
+        typer.echo("Error: ffmpeg not found on PATH. Install it with `brew install ffmpeg`.")
+        raise typer.Exit(1)
+    totals = {"converted": 0, "skipped": 0, "failed": 0}
+    for folder in folders:
+        if os.path.isdir(folder):
+            typer.echo(f"Scanning folder: {folder}")
+            counts = process_folder(folder, recursive, overwrite, delete_original, extensions, target_extension, converter)
+            for outcome, count in counts.items():
+                totals[outcome] += count
+        else:
+            typer.echo(f"Warning: {folder} is not a valid directory.")
+    typer.echo(f"\nConverted {totals['converted']}, skipped {totals['skipped']}, failed {totals['failed']} file(s).")
+    if totals["failed"]:
+        raise typer.Exit(1)
+
+
 @app.command(name="mp4-to-mkv", help="Remux .mp4 files to .mkv with stream copy")
 def mp4_to_mkv(
     folders: List[str] = typer.Argument(..., help="Folders containing MP4 files"),
@@ -186,21 +204,17 @@ def mp4_to_mkv(
         False, "--delete-original", help="Delete original after successful conversion"
     ),
 ):
-    if shutil.which("ffmpeg") is None:
-        typer.echo("Error: ffmpeg not found on PATH. Install it with `brew install ffmpeg`.")
-        raise typer.Exit(1)
-    totals = {"converted": 0, "skipped": 0, "failed": 0}
-    for folder in folders:
-        if os.path.isdir(folder):
-            typer.echo(f"Scanning folder: {folder}")
-            counts = process_folder(folder, recursive, overwrite, delete_original, {".mp4"})
-            for outcome, count in counts.items():
-                totals[outcome] += count
-        else:
-            typer.echo(f"Warning: {folder} is not a valid directory.")
-    typer.echo(f"\nConverted {totals['converted']}, skipped {totals['skipped']}, failed {totals['failed']} file(s).")
-    if totals["failed"]:
-        raise typer.Exit(1)
+    run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_mp4_to_mkv)
+
+
+@app.command(name="mov-to-mkv", help="Remux .mov files to .mkv with stream copy")
+def mov_to_mkv(
+    folders: List[str] = typer.Argument(..., help="Folders containing MOV files"),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
+    overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
+    delete_original: bool = typer.Option(False, "--delete-original", help="Delete original after successful conversion"),
+):
+    run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_mp4_to_mkv)
 
 
 if __name__ == "__main__":
