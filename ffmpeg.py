@@ -9,6 +9,7 @@ import typer
 CONVERSIONS = {
     ".mov": ".mp4",
     ".heic": ".jpg",
+    ".mp4": ".mkv",
 }
 
 
@@ -57,18 +58,25 @@ def convert_heic_to_jpg(source_path, target_path):
     return run_ffmpeg(["-i", source_path, "-frames:v", "1", "-q:v", "2", target_path])
 
 
+def convert_mp4_to_mkv(source_path, target_path):
+    """Remux every stream from MP4 into MKV without re-encoding."""
+    return run_ffmpeg(["-i", source_path, "-map", "0", "-c", "copy", target_path])
+
+
 CONVERTERS = {
     ".mov": convert_mov_to_mp4,
     ".heic": convert_heic_to_jpg,
+    ".mp4": convert_mp4_to_mkv,
 }
 
 
-def find_convertible_files(folder_path, recursive=True):
-    """Find all files in a folder whose extension has a known conversion."""
+def find_convertible_files(folder_path, recursive=True, extensions=None):
+    """Find files whose extension has a known conversion, optionally filtered."""
+    extensions = CONVERSIONS.keys() if extensions is None else extensions
     matches = []
     for root, dirs, files in os.walk(folder_path):
         for file_name in sorted(files):
-            if os.path.splitext(file_name)[1].lower() in CONVERSIONS:
+            if os.path.splitext(file_name)[1].lower() in extensions:
                 matches.append(os.path.join(root, file_name))
         if not recursive:
             dirs.clear()
@@ -107,10 +115,10 @@ def convert_file(source_path, overwrite=False, delete_original=False):
     return "converted"
 
 
-def process_folder(folder_path, recursive=True, overwrite=False, delete_original=False):
-    """Convert all supported files in a folder; return counts per outcome."""
+def process_folder(folder_path, recursive=True, overwrite=False, delete_original=False, extensions=None):
+    """Convert supported files in a folder; return counts per outcome."""
     counts = {"converted": 0, "skipped": 0, "failed": 0}
-    for source_path in find_convertible_files(folder_path, recursive):
+    for source_path in find_convertible_files(folder_path, recursive, extensions):
         outcome = convert_file(source_path, overwrite, delete_original)
         counts[outcome] += 1
     return counts
@@ -151,7 +159,7 @@ def convert(
     for folder in folders:
         if os.path.isdir(folder):
             typer.echo(f"Scanning folder: {folder}")
-            counts = process_folder(folder, recursive, overwrite, delete_original)
+            counts = process_folder(folder, recursive, overwrite, delete_original, {".mov", ".heic"})
             for outcome, count in counts.items():
                 totals[outcome] += count
         else:
@@ -161,6 +169,36 @@ def convert(
         f"\nConverted {totals['converted']}, skipped {totals['skipped']}, "
         f"failed {totals['failed']} file(s)."
     )
+    if totals["failed"]:
+        raise typer.Exit(1)
+
+
+@app.command(name="mp4-to-mkv", help="Remux .mp4 files to .mkv with stream copy")
+def mp4_to_mkv(
+    folders: List[str] = typer.Argument(..., help="Folders containing MP4 files"),
+    recursive: bool = typer.Option(
+        True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite", "-f", help="Overwrite existing converted files"
+    ),
+    delete_original: bool = typer.Option(
+        False, "--delete-original", help="Delete original after successful conversion"
+    ),
+):
+    if shutil.which("ffmpeg") is None:
+        typer.echo("Error: ffmpeg not found on PATH. Install it with `brew install ffmpeg`.")
+        raise typer.Exit(1)
+    totals = {"converted": 0, "skipped": 0, "failed": 0}
+    for folder in folders:
+        if os.path.isdir(folder):
+            typer.echo(f"Scanning folder: {folder}")
+            counts = process_folder(folder, recursive, overwrite, delete_original, {".mp4"})
+            for outcome, count in counts.items():
+                totals[outcome] += count
+        else:
+            typer.echo(f"Warning: {folder} is not a valid directory.")
+    typer.echo(f"\nConverted {totals['converted']}, skipped {totals['skipped']}, failed {totals['failed']} file(s).")
     if totals["failed"]:
         raise typer.Exit(1)
 
