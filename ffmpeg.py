@@ -201,7 +201,7 @@ def mp4_to_mkv(
         False, "--overwrite", "-f", help="Overwrite existing converted files"
     ),
     delete_original: bool = typer.Option(
-        False, "--delete-original", help="Delete original after successful conversion"
+        True, "--delete-original", help="Delete original after successful conversion"
     ),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_mp4_to_mkv)
