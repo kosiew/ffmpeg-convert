@@ -205,15 +205,22 @@ CONVERTERS = {
 
 
 def find_convertible_files(folder_path, recursive=True, extensions=None):
-    """Find files whose extension has a known conversion, optionally filtered."""
+    """
+    Find files whose extension has a known conversion, optionally filtered.
+
+    Skips "._name" files (macOS metadata companions on exFAT/FAT drives, not
+    real media) and hidden folders such as .Trashes, so a drive's Trash isn't
+    converted.
+    """
     extensions = CONVERSIONS.keys() if extensions is None else extensions
     matches = []
     for root, dirs, files in os.walk(folder_path):
+        dirs[:] = [] if not recursive else sorted(d for d in dirs if not d.startswith("."))
         for file_name in sorted(files):
+            if file_name.startswith("._"):
+                continue
             if os.path.splitext(file_name)[1].lower() in extensions:
                 matches.append(os.path.join(root, file_name))
-        if not recursive:
-            dirs.clear()
     return matches
 
 

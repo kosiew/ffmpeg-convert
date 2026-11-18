@@ -308,5 +308,23 @@ class FailureSummaryTests(unittest.TestCase):
         self.assertNotIn("some detail", summary)
 
 
+
+class FindFilesTests(unittest.TestCase):
+    def test_skips_appledouble_files_and_hidden_folders(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, ".Trashes", "501"))
+            os.makedirs(os.path.join(root, "Season 1"))
+            for relative in (
+                "movie.mp4",
+                "._movie.mp4",
+                ".Trashes/501/old.mp4",
+                "Season 1/ep1.mp4",
+                "Season 1/._ep1.mp4",
+            ):
+                open(os.path.join(root, relative), "w").close()
+            found = [os.path.relpath(p, root) for p in ffmpeg.find_convertible_files(root)]
+        self.assertEqual(found, ["movie.mp4", os.path.join("Season 1", "ep1.mp4")])
+
+
 if __name__ == "__main__":
     unittest.main()
