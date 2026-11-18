@@ -20,6 +20,7 @@ DEFAULT_JOBS = 4
 CONVERSIONS = {
     ".mp4": ".mkv",
     ".mov": ".mkv",
+    ".m4v": ".mkv",
     ".avi": ".mkv",
     ".heic": ".jpg",
 }
@@ -85,7 +86,7 @@ def convert_heic_to_jpg(source_path, target_path):
 
 
 def convert_to_mkv(source_path, target_path):
-    """Remux MP4/MOV/AVI into MKV without re-encoding audio/video.
+    """Remux MP4/M4V/MOV/AVI into MKV without re-encoding audio/video.
 
     - mov_text subtitles can't be stored in Matroska, so subtitles become SRT.
     - Cover art (an MP4 "attached picture") is stored as an MKV attachment, not
@@ -189,6 +190,7 @@ def extract_srt_files(source_path, base_path, streams):
 CONVERTERS = {
     ".mp4": convert_to_mkv,
     ".mov": convert_to_mkv,
+    ".m4v": convert_to_mkv,
     ".avi": convert_to_mkv,
     ".heic": convert_heic_to_jpg,
 }
@@ -257,7 +259,7 @@ def main():
     """Keep `convert` as an explicit subcommand, like the commands in pdf.py."""
 
 
-@app.command(help="Convert files in folders: .mp4/.mov/.avi → .mkv, .heic → .jpg")
+@app.command(help="Convert files in folders: .mp4/.m4v/.mov/.avi → .mkv, .heic → .jpg")
 def convert(
     folders: List[str] = typer.Argument(..., help="Folders containing files to convert"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
@@ -385,6 +387,17 @@ def avi_to_mkv(
     jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".avi"}, ".mkv", convert_to_mkv, jobs=jobs)
+
+
+@app.command(name="m4v-to-mkv", help="Remux .m4v files to .mkv with stream copy")
+def m4v_to_mkv(
+    folders: List[str] = typer.Argument(..., help="Folders containing M4V files"),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
+    overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
+    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
+):
+    run_batch(folders, recursive, overwrite, delete_original, {".m4v"}, ".mkv", convert_to_mkv, jobs=jobs)
 
 
 if __name__ == "__main__":

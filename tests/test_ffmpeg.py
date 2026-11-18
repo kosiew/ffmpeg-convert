@@ -18,6 +18,7 @@ class Mp4ToMkvTests(unittest.TestCase):
         self.assertIn("mp4-to-mkv", command_names)
         self.assertIn("mov-to-mkv", command_names)
         self.assertIn("avi-to-mkv", command_names)
+        self.assertIn("m4v-to-mkv", command_names)
 
     def test_cli_converts_recursive_mov_only_and_preserves_timestamp(self):
         with tempfile.TemporaryDirectory() as root:
@@ -189,7 +190,7 @@ class ConvertTests(unittest.TestCase):
     def test_convert_sends_videos_to_mkv_and_heic_to_jpg(self):
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as root:
-            for name in ("a.mp4", "b.MOV", "c.avi", "d.heic", "notes.txt"):
+            for name in ("a.mp4", "b.MOV", "c.avi", "d.heic", "e.m4v", "notes.txt"):
                 open(os.path.join(root, name), "w").close()
             outputs = []
 
@@ -201,7 +202,7 @@ class ConvertTests(unittest.TestCase):
             with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake_run_ffmpeg):
                 result = runner.invoke(ffmpeg.app, ["convert", root])
             self.assertEqual(result.exit_code, 0, result.output)
-            self.assertEqual(sorted(outputs), ["a.mkv", "b.mkv", "c.mkv", "d.jpg"])
+            self.assertEqual(sorted(outputs), ["a.mkv", "b.mkv", "c.mkv", "d.jpg", "e.mkv"])
             self.assertTrue(os.path.exists(os.path.join(root, "b.MOV")))
 
 

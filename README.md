@@ -2,9 +2,9 @@
 
 Convert media files in folders with ffmpeg:
 
-- `convert` — every supported file at once: `.mp4`, `.mov`, `.avi` → `.mkv`
+- `convert` — every supported file at once: `.mp4`, `.m4v`, `.mov`, `.avi` → `.mkv`
   (stream copy, no re-encoding) and `.heic` → `.jpg`
-- `mp4-to-mkv`, `mov-to-mkv`, `avi-to-mkv` — only that one video type → `.mkv`
+- `mp4-to-mkv`, `m4v-to-mkv`, `mov-to-mkv`, `avi-to-mkv` — only that one video type → `.mkv`
 
 Converted files are saved next to the originals.
 
@@ -20,6 +20,7 @@ uv run ffmpeg.py convert folder1 folder2 ...
 uv run ffmpeg.py mp4-to-mkv folder1 folder2 ...
 uv run ffmpeg.py mov-to-mkv folder1 folder2 ...
 uv run ffmpeg.py avi-to-mkv folder1 folder2 ...
+uv run ffmpeg.py m4v-to-mkv folder1 folder2 ...
 ```
 
 Options:
@@ -37,12 +38,12 @@ straight to done. When output is piped or redirected, the bars are hidden and
 only the normal messages print.
 - `--delete-original` — move each original to the Trash after a successful conversion
   (recoverable with Finder's *Put Back*). This is the default for `mp4-to-mkv`;
-  use `--keep-original` there to keep the original. `mov-to-mkv` and
-  `avi-to-mkv` keep originals unless you pass `--delete-original`.
+  use `--keep-original` there to keep the original. `m4v-to-mkv`, `mov-to-mkv`
+  and `avi-to-mkv` keep originals unless you pass `--delete-original`.
 
 ## Subtitles in MKV output
 
-`mp4-to-mkv`, `mov-to-mkv` and `avi-to-mkv` handle subtitles in two ways:
+`mp4-to-mkv`, `m4v-to-mkv`, `mov-to-mkv` and `avi-to-mkv` handle subtitles in two ways:
 
 1. **Built-in tracks.** Each subtitle track is converted to SRT and stored inside
    the `.mkv`. (MP4's `mov_text` format can't go into MKV as-is.)
@@ -64,6 +65,12 @@ tracks therefore shows **6** entries in VLC's *Subtitle Track* menu:
 
 Each pair has the same text, so you can pick either one. To see only the
 built-in tracks, delete or move the `.srt` files.
+
+### M4V files
+
+`.m4v` is Apple's MP4 variant, so it is handled exactly like `.mp4`. Videos
+bought from the iTunes Store are DRM-protected and can't be remuxed; those are
+reported as failed and left untouched.
 
 ### AVI files
 
