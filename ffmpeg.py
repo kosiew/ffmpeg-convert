@@ -38,6 +38,14 @@ def set_progress_total(seconds):
         reporter(total=seconds)
 
 
+def report_error(stderr):
+    """Print ffmpeg's error output and remember its last line for the summary."""
+    stderr = stderr.strip()
+    print(stderr)
+    if stderr:
+        _current.last_error = stderr.splitlines()[-1]
+
+
 def run_ffmpeg(args, progress=False):
     """
     Run ffmpeg quietly with the given arguments; return True on success.
@@ -50,7 +58,7 @@ def run_ffmpeg(args, progress=False):
     if reporter is None:
         result = subprocess.run([*command, *args], capture_output=True, text=True)
         if result.returncode != 0:
-            print(result.stderr.strip())
+            report_error(result.stderr)
         return result.returncode == 0
 
     # stderr goes to a temp file so a chatty ffmpeg can't block on a full pipe
@@ -67,7 +75,7 @@ def run_ffmpeg(args, progress=False):
         process.wait()
         if process.returncode != 0:
             errors.seek(0)
-            print(errors.read().strip())
+            report_error(errors.read())
     return process.returncode == 0
 
 
@@ -325,8 +333,10 @@ def run_batch(folders, recursive, overwrite, delete_original, extensions, target
         # One bar per running file; filled in from ffmpeg's progress output
         task = progress.add_task(f"  {shorten(os.path.basename(source_path))}", total=None)
         _current.reporter = lambda **fields: progress.update(task, **fields)
+        _current.last_error = None
         try:
-            return convert_file(source_path, overwrite, delete_original, target_extension, converter)
+            outcome = convert_file(source_path, overwrite, delete_original, target_extension, converter)
+            return outcome, getattr(_current, "last_error", None)
         finally:
             _current.reporter = None
             progress.remove_task(task)
@@ -334,11 +344,14 @@ def run_batch(folders, recursive, overwrite, delete_original, extensions, target
                 done[0] += 1
                 progress.update(overall, advance=1, description=f"Files {done[0]}/{len(tasks)}")
 
+    failures = []
     pool = ThreadPoolExecutor(max_workers=jobs)
     try:
         with progress:
-            for outcome in pool.map(convert_one, tasks):
+            for source_path, (outcome, error) in zip(tasks, pool.map(convert_one, tasks)):
                 totals[outcome] += 1
+                if outcome == "failed":
+                    failures.append((source_path, error))
     except KeyboardInterrupt:
         # Ctrl-C also stops the running ffmpeg processes; don't start queued ones
         pool.shutdown(wait=True, cancel_futures=True)
@@ -346,6 +359,12 @@ def run_batch(folders, recursive, overwrite, delete_original, extensions, target
     pool.shutdown()
 
     typer.echo(f"\nConverted {totals['converted']}, skipped {totals['skipped']}, failed {totals['failed']} file(s).")
+    if failures:
+        typer.echo("\nFailed files:")
+        for source_path, error in failures:
+            typer.echo(f"  {source_path}")
+            if error:
+                typer.echo(f"    {error}")
     if totals["failed"]:
         raise typer.Exit(1)
 

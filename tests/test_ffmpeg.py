@@ -281,5 +281,32 @@ class ParallelBatchTests(unittest.TestCase):
         self.assertIn("Converted 1, skipped 2", result.output)
 
 
+
+class FailureSummaryTests(unittest.TestCase):
+    def test_summary_lists_failed_files_with_last_error_line(self):
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("good.mp4", "bad.mp4", "worse.avi"):
+                open(os.path.join(root, name), "w").close()
+
+            def fake(args, **_):
+                if args[-1].endswith("good.mkv"):
+                    open(args[-1], "w").close()
+                    return True
+                ffmpeg.report_error("[matroska @ 0x1] some detail\nCould not write header for " + os.path.basename(args[-1]))
+                return False
+
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake):
+                result = runner.invoke(ffmpeg.app, ["convert", "-j", "3", root])
+        self.assertEqual(result.exit_code, 1)
+        summary = result.output.split("Failed files:")[1]
+        self.assertIn(os.path.join(root, "bad.mp4"), summary)
+        self.assertIn("Could not write header for bad.mkv", summary)
+        self.assertIn(os.path.join(root, "worse.avi"), summary)
+        self.assertIn("Could not write header for worse.mkv", summary)
+        self.assertNotIn("good.mp4", summary)
+        self.assertNotIn("some detail", summary)
+
+
 if __name__ == "__main__":
     unittest.main()
