@@ -2,11 +2,9 @@
 
 Convert media files in folders with ffmpeg:
 
-- `.mov` → `.mp4` (fast stream copy, falling back to H.264/AAC re-encode)
-- `.heic` → `.jpg`
-- `.mp4` → `.mkv` via stream copy (`mp4-to-mkv`)
-- `.mov` → `.mkv` via stream copy (`mov-to-mkv`)
-- `.avi` → `.mkv` via stream copy (`avi-to-mkv`)
+- `convert` — every supported file at once: `.mp4`, `.mov`, `.avi` → `.mkv`
+  (stream copy, no re-encoding) and `.heic` → `.jpg`
+- `mp4-to-mkv`, `mov-to-mkv`, `avi-to-mkv` — only that one video type → `.mkv`
 
 Converted files are saved next to the originals.
 

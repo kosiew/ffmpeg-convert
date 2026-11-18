@@ -10,9 +10,10 @@ from send2trash import send2trash
 
 # Source extension -> target extension
 CONVERSIONS = {
-    ".mov": ".mp4",
-    ".heic": ".jpg",
     ".mp4": ".mkv",
+    ".mov": ".mkv",
+    ".avi": ".mkv",
+    ".heic": ".jpg",
 }
 
 
@@ -23,37 +24,6 @@ def run_ffmpeg(args):
     if result.returncode != 0:
         print(result.stderr.strip())
     return result.returncode == 0
-
-
-def convert_mov_to_mp4(source_path, target_path):
-    """
-    Convert a MOV video to MP4.
-
-    First try a fast remux (stream copy), which works for the H.264/HEVC + AAC
-    streams most cameras and phones produce. If the streams can't go into an
-    MP4 container as-is (e.g. ProRes), fall back to re-encoding with H.264/AAC.
-    """
-    remux_args = [
-        "-i", source_path,
-        "-map", "0:v:0", "-map", "0:a?",
-        "-c", "copy",
-        "-movflags", "+faststart",
-        target_path,
-    ]
-    if run_ffmpeg(remux_args):
-        return True
-
-    print(f"Remux failed, re-encoding: {source_path}")
-    encode_args = [
-        "-i", source_path,
-        "-map", "0:v:0", "-map", "0:a?",
-        "-c:v", "libx264", "-crf", "20", "-preset", "medium",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k",
-        "-movflags", "+faststart",
-        target_path,
-    ]
-    return run_ffmpeg(encode_args)
 
 
 def convert_heic_to_jpg(source_path, target_path):
@@ -163,9 +133,10 @@ def extract_srt_files(source_path, base_path, streams):
 
 
 CONVERTERS = {
-    ".mov": convert_mov_to_mp4,
-    ".heic": convert_heic_to_jpg,
     ".mp4": convert_to_mkv,
+    ".mov": convert_to_mkv,
+    ".avi": convert_to_mkv,
+    ".heic": convert_heic_to_jpg,
 }
 
 
@@ -236,45 +207,18 @@ def main():
     """Keep `convert` as an explicit subcommand, like the commands in pdf.py."""
 
 
-@app.command(help="Convert files in folders: .mov → .mp4, .heic → .jpg")
+@app.command(help="Convert files in folders: .mp4/.mov/.avi → .mkv, .heic → .jpg")
 def convert(
-    folders: List[str] = typer.Argument(
-        ..., help="Folders containing files to convert"
-    ),
-    recursive: bool = typer.Option(
-        True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"
-    ),
-    overwrite: bool = typer.Option(
-        False, "--overwrite", "-f", help="Overwrite existing converted files"
-    ),
-    delete_original: bool = typer.Option(
-        False, "--delete-original", help="Delete the original file after a successful conversion"
-    ),
+    folders: List[str] = typer.Argument(..., help="Folders containing files to convert"),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
+    overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
+    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
 ):
     """
     Convert supported files in the specified folders.
     Converted files are saved next to the originals with the new extension.
     """
-    if shutil.which("ffmpeg") is None:
-        typer.echo("Error: ffmpeg not found on PATH. Install it with `brew install ffmpeg`.")
-        raise typer.Exit(1)
-
-    totals = {"converted": 0, "skipped": 0, "failed": 0}
-    for folder in folders:
-        if os.path.isdir(folder):
-            typer.echo(f"Scanning folder: {folder}")
-            counts = process_folder(folder, recursive, overwrite, delete_original, {".mov", ".heic"})
-            for outcome, count in counts.items():
-                totals[outcome] += count
-        else:
-            typer.echo(f"Warning: {folder} is not a valid directory.")
-
-    typer.echo(
-        f"\nConverted {totals['converted']}, skipped {totals['skipped']}, "
-        f"failed {totals['failed']} file(s)."
-    )
-    if totals["failed"]:
-        raise typer.Exit(1)
+    run_batch(folders, recursive, overwrite, delete_original, set(CONVERSIONS))
 
 
 def run_batch(folders, recursive, overwrite, delete_original, extensions, target_extension=None, converter=None):

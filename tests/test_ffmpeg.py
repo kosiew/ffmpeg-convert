@@ -183,5 +183,26 @@ class AviToMkvTests(unittest.TestCase):
         self.assertIn("mpeg4_unpack_bframes", run.call_args_list[0].args[0])
 
 
+
+class ConvertTests(unittest.TestCase):
+    def test_convert_sends_videos_to_mkv_and_heic_to_jpg(self):
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("a.mp4", "b.MOV", "c.avi", "d.heic", "notes.txt"):
+                open(os.path.join(root, name), "w").close()
+            outputs = []
+
+            def fake_run_ffmpeg(args):
+                outputs.append(os.path.basename(args[-1]))
+                open(args[-1], "w").close()
+                return True
+
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake_run_ffmpeg):
+                result = runner.invoke(ffmpeg.app, ["convert", root])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(sorted(outputs), ["a.mkv", "b.mkv", "c.mkv", "d.jpg"])
+            self.assertTrue(os.path.exists(os.path.join(root, "b.MOV")))
+
+
 if __name__ == "__main__":
     unittest.main()
