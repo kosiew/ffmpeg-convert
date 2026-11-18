@@ -38,7 +38,7 @@ class Mp4ToMkvTests(unittest.TestCase):
                 result = self.runner.invoke(ffmpeg.app, ["mov-to-mkv", root])
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(len(calls), 3)
-            self.assertTrue(all(args[2:6] == ["-map", "0", "-c", "copy"] for args in calls))
+            self.assertTrue(all(args[2:8] == ["-map", "0:V?", "-map", "0:a?", "-map", "0:s?"] for args in calls))
             self.assertEqual(os.stat(os.path.join(root, "a.mkv")).st_mtime, timestamp)
             self.assertFalse(os.path.exists(os.path.join(root, "unrelated.mkv")))
 
@@ -72,7 +72,7 @@ class Mp4ToMkvTests(unittest.TestCase):
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(len(calls), 3)
-            self.assertTrue(all(args[2:5] == ["-map", "0", "-c"] and args[5] == "copy" for args in calls))
+            self.assertTrue(all(args[8:12] == ["-c", "copy", "-c:s", "srt"] for args in calls))
             self.assertEqual(os.stat(os.path.join(root, "a.mkv")).st_mtime, timestamp)
             self.assertFalse(os.path.exists(os.path.join(root, "unrelated.mkv")))
 

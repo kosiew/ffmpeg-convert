@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from typing import List
 
 import typer
@@ -61,55 +62,87 @@ def convert_heic_to_jpg(source_path, target_path):
 
 
 def convert_mp4_to_mkv(source_path, target_path):
-    """Remux every stream into MKV without re-encoding audio/video.
+    """Remux into MKV without re-encoding audio/video.
 
-    MP4/MOV text subtitles (mov_text) can't be stored in Matroska, so
-    subtitle streams are converted to SRT, which is lossless for plain text.
+    - mov_text subtitles can't be stored in Matroska, so subtitles become SRT.
+    - Cover art (an MP4 "attached picture") is stored as an MKV attachment, not
+      copied as a second video track: VLC renders embedded subtitles onto that
+      one-frame track, so they never appear on the movie.
+    - Data streams (e.g. MOV timecode) are dropped; Matroska can't hold them.
     """
-    if not run_ffmpeg(["-i", source_path, "-map", "0", "-c", "copy", "-c:s", "srt", target_path]):
-        return False
-    extract_srt_files(source_path, os.path.splitext(target_path)[0])
+    streams = probe_streams(source_path)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        args = [
+            "-i", source_path,
+            "-map", "0:V?", "-map", "0:a?", "-map", "0:s?",
+            "-c", "copy", "-c:s", "srt",
+        ]
+        for n, (path, mime) in enumerate(extract_cover_art(source_path, streams, temp_dir)):
+            args += [
+                "-attach", path,
+                f"-metadata:s:t:{n}", f"mimetype={mime}",
+                f"-metadata:s:t:{n}", f"filename={os.path.basename(path)}",
+            ]
+        if not run_ffmpeg([*args, target_path]):
+            return False
+    extract_srt_files(source_path, os.path.splitext(target_path)[0], streams)
     return True
 
 
 TEXT_SUBTITLE_CODECS = {"mov_text", "subrip", "srt", "ass", "ssa", "webvtt", "text"}
+COVER_ART_TYPES = {"mjpeg": ("jpg", "image/jpeg"), "png": ("png", "image/png")}
 
 
-def subtitle_streams(source_path):
-    """Return (index, codec, language) for each subtitle stream, via ffprobe."""
+def probe_streams(source_path):
+    """Return ffprobe's stream list (index, type, codec, language, dispositions)."""
     command = [
-        "ffprobe", "-v", "error", "-select_streams", "s",
-        "-show_entries", "stream=index,codec_name:stream_tags=language",
+        "ffprobe", "-v", "error",
+        "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language:stream_disposition=attached_pic",
         "-of", "json", source_path,
     ]
     try:
         result = subprocess.run(command, capture_output=True, text=True)
-        streams = json.loads(result.stdout or "{}").get("streams", [])
+        return json.loads(result.stdout or "{}").get("streams", [])
     except (OSError, ValueError):
         return []
-    return [
-        (s["index"], s.get("codec_name", ""), s.get("tags", {}).get("language", ""))
-        for s in streams
-    ]
 
 
-def extract_srt_files(source_path, base_path):
+def extract_cover_art(source_path, streams, temp_dir):
+    """Save attached pictures to temp_dir; return [(path, mimetype)]."""
+    covers = []
+    for stream in streams:
+        if not stream.get("disposition", {}).get("attached_pic"):
+            continue
+        file_type = COVER_ART_TYPES.get(stream.get("codec_name"))
+        if not file_type:
+            continue
+        ext, mime = file_type
+        suffix = f"{len(covers) + 1}" if covers else ""
+        path = os.path.join(temp_dir, f"cover{suffix}.{ext}")
+        if run_ffmpeg(["-i", source_path, "-map", f"0:{stream['index']}", "-c", "copy", "-frames:v", "1", "-update", "1", path]):
+            covers.append((path, mime))
+    return covers
+
+
+def extract_srt_files(source_path, base_path, streams):
     """
     Save each text subtitle stream as a sidecar .srt next to the output.
 
     Names follow the player convention: movie.srt, or movie.eng.srt when the
-    stream has a language tag; clashes get a numeric suffix (movie.eng.2.srt).
+    stream has a language tag. Later tracks with the same language get a number
+    before the language (movie.2.eng.srt) so players still read the language.
     """
     args, used = ["-i", source_path], []
-    for index, codec, language in subtitle_streams(source_path):
-        if codec not in TEXT_SUBTITLE_CODECS:
+    for stream in streams:
+        if stream.get("codec_type") != "subtitle" or stream.get("codec_name") not in TEXT_SUBTITLE_CODECS:
             continue
-        stem = f"{base_path}.{language}" if language and language != "und" else base_path
-        name, n = f"{stem}.srt", 2
+        language = stream.get("tags", {}).get("language", "")
+        lang_suffix = f".{language}" if language and language != "und" else ""
+        name, n = f"{base_path}{lang_suffix}.srt", 2
         while name in used:
-            name, n = f"{stem}.{n}.srt", n + 1
+            name, n = f"{base_path}.{n}{lang_suffix}.srt", n + 1
         used.append(name)
-        args += ["-map", f"0:{index}", "-c:s", "srt", name]
+        args += ["-map", f"0:{stream['index']}", "-c:s", "srt", name]
     if not used:
         return
     if run_ffmpeg(args):
