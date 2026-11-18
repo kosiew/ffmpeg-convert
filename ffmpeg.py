@@ -3,10 +3,13 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 import typer
+from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 from send2trash import send2trash
 
 # Files converted at once by default. Remuxing is mostly disk-bound, so a few
@@ -22,13 +25,58 @@ CONVERSIONS = {
 }
 
 
-def run_ffmpeg(args):
-    """Run ffmpeg quietly with the given arguments; return True on success."""
-    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(result.stderr.strip())
-    return result.returncode == 0
+# Per-thread handle to this file's progress bar (set by run_batch), so the
+# converters don't need to pass it around.
+_current = threading.local()
+
+
+def set_progress_total(seconds):
+    """Tell this thread's progress bar how long the media is, if known."""
+    reporter = getattr(_current, "reporter", None)
+    if reporter and seconds:
+        reporter(total=seconds)
+
+
+def run_ffmpeg(args, progress=False):
+    """
+    Run ffmpeg quietly with the given arguments; return True on success.
+
+    With progress=True, ffmpeg's -progress output drives this thread's
+    progress bar (if any).
+    """
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+    reporter = getattr(_current, "reporter", None) if progress else None
+    if reporter is None:
+        result = subprocess.run([*command, *args], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(result.stderr.strip())
+        return result.returncode == 0
+
+    # stderr goes to a temp file so a chatty ffmpeg can't block on a full pipe
+    # while we're reading progress lines from stdout.
+    with tempfile.TemporaryFile(mode="w+") as errors:
+        process = subprocess.Popen(
+            [*command, "-progress", "pipe:1", "-nostats", *args],
+            stdout=subprocess.PIPE, stderr=errors, text=True,
+        )
+        for line in process.stdout:
+            key, _, value = line.strip().partition("=")
+            if key == "out_time_us" and value.isdigit():
+                reporter(completed=int(value) / 1_000_000)
+        process.wait()
+        if process.returncode != 0:
+            errors.seek(0)
+            print(errors.read().strip())
+    return process.returncode == 0
+
+
+def probe_duration(source_path):
+    """Return the media duration in seconds, or None if unknown."""
+    command = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", source_path]
+    try:
+        return float(subprocess.run(command, capture_output=True, text=True).stdout.strip())
+    except (OSError, ValueError):
+        return None
 
 
 def convert_heic_to_jpg(source_path, target_path):
@@ -68,7 +116,8 @@ def convert_to_mkv(source_path, target_path):
                 f"-metadata:s:t:{n}", f"mimetype={mime}",
                 f"-metadata:s:t:{n}", f"filename={os.path.basename(path)}",
             ]
-        if not run_ffmpeg([*args, target_path]):
+        set_progress_total(probe_duration(source_path))
+        if not run_ffmpeg([*args, target_path], progress=True):
             return False
     extract_srt_files(source_path, os.path.splitext(target_path)[0], streams)
     return True
@@ -223,6 +272,11 @@ def convert(
     run_batch(folders, recursive, overwrite, delete_original, set(CONVERSIONS), jobs=jobs)
 
 
+def shorten(name, width=40):
+    """Trim long file names for the progress display, keeping the end."""
+    return name if len(name) <= width else "…" + name[-(width - 1):]
+
+
 def run_batch(folders, recursive, overwrite, delete_original, extensions, target_extension=None, converter=None, jobs=DEFAULT_JOBS):
     """Convert matching files in the folders, up to `jobs` at a time."""
     if shutil.which("ffmpeg") is None:
@@ -252,13 +306,37 @@ def run_batch(folders, recursive, overwrite, delete_original, extensions, target
         claimed.add(key)
         tasks.append(source_path)
 
+    console = Console()
+    progress = Progress(
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        disable=not console.is_terminal,
+        transient=True,
+    )
+    overall = progress.add_task(f"Files 0/{len(tasks)}", total=len(tasks))
+    done, done_lock = [0], threading.Lock()
+
     def convert_one(source_path):
-        return convert_file(source_path, overwrite, delete_original, target_extension, converter)
+        # One bar per running file; filled in from ffmpeg's progress output
+        task = progress.add_task(f"  {shorten(os.path.basename(source_path))}", total=None)
+        _current.reporter = lambda **fields: progress.update(task, **fields)
+        try:
+            return convert_file(source_path, overwrite, delete_original, target_extension, converter)
+        finally:
+            _current.reporter = None
+            progress.remove_task(task)
+            with done_lock:
+                done[0] += 1
+                progress.update(overall, advance=1, description=f"Files {done[0]}/{len(tasks)}")
 
     pool = ThreadPoolExecutor(max_workers=jobs)
     try:
-        for outcome in pool.map(convert_one, tasks):
-            totals[outcome] += 1
+        with progress:
+            for outcome in pool.map(convert_one, tasks):
+                totals[outcome] += 1
     except KeyboardInterrupt:
         # Ctrl-C also stops the running ffmpeg processes; don't start queued ones
         pool.shutdown(wait=True, cancel_futures=True)

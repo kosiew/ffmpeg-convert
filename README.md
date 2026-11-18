@@ -29,6 +29,12 @@ Options:
 - `--jobs N` / `-j N` — convert up to N files at once (default 4; `-j 1` for one
   at a time). If two files would produce the same output name (e.g. `clip.mp4`
   and `clip.mov` → `clip.mkv`), only the first is converted.
+
+While running in a terminal, a progress display shows a `Files 3/10` bar plus a
+bar per file being converted, with percent done and time remaining (from
+ffmpeg's own progress output). Remuxing is fast, so small files may jump
+straight to done. When output is piped or redirected, the bars are hidden and
+only the normal messages print.
 - `--delete-original` — move each original to the Trash after a successful conversion
   (recoverable with Finder's *Put Back*). This is the default for `mp4-to-mkv`;
   use `--keep-original` there to keep the original. `mov-to-mkv` and

@@ -25,12 +25,14 @@ name = "ffmpeg-convert"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "rich" },
     { name = "send2trash" },
     { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "send2trash", specifier = ">=2.2.0" },
     { name = "typer", specifier = ">=0.15.2" },
 ]

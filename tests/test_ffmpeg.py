@@ -31,7 +31,7 @@ class Mp4ToMkvTests(unittest.TestCase):
             os.utime(sources[0], (timestamp, timestamp))
             calls = []
 
-            def fake_run_ffmpeg(args):
+            def fake_run_ffmpeg(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
@@ -64,7 +64,7 @@ class Mp4ToMkvTests(unittest.TestCase):
             os.utime(sources[0], (timestamp, timestamp))
             calls = []
 
-            def fake_run_ffmpeg(args):
+            def fake_run_ffmpeg(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
@@ -85,7 +85,7 @@ class Mp4ToMkvTests(unittest.TestCase):
                 open(os.path.join(root, relative), "w").close()
             open(os.path.join(root, "top.mkv"), "w").close()
             calls = []
-            def fake(args):
+            def fake(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
@@ -100,7 +100,7 @@ class Mp4ToMkvTests(unittest.TestCase):
             good, bad = (os.path.join(root, name) for name in ("good.mov", "bad.mov"))
             open(good, "w").close()
             open(bad, "w").close()
-            def fake(args):
+            def fake(args, **_):
                 open(args[-1], "w").close()
                 return args[-1].endswith("good.mkv")
             with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake), \
@@ -120,7 +120,7 @@ class Mp4ToMkvTests(unittest.TestCase):
                 open(os.path.join(root, relative), "w").close()
             calls = []
 
-            def fake_run_ffmpeg(args):
+            def fake_run_ffmpeg(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
@@ -139,7 +139,7 @@ class Mp4ToMkvTests(unittest.TestCase):
             open(target, "w").close()
             calls = []
 
-            def fake_run_ffmpeg(args):
+            def fake_run_ffmpeg(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
@@ -163,7 +163,7 @@ class AviToMkvTests(unittest.TestCase):
                 open(os.path.join(root, name), "w").close()
             calls = []
 
-            def fake_run_ffmpeg(args):
+            def fake_run_ffmpeg(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
@@ -193,7 +193,7 @@ class ConvertTests(unittest.TestCase):
                 open(os.path.join(root, name), "w").close()
             outputs = []
 
-            def fake_run_ffmpeg(args):
+            def fake_run_ffmpeg(args, **_):
                 outputs.append(os.path.basename(args[-1]))
                 open(args[-1], "w").close()
                 return True
@@ -221,7 +221,7 @@ class ParallelBatchTests(unittest.TestCase):
             # Each fake ffmpeg waits for the other; this only passes if both run at once
             barrier = threading.Barrier(2, timeout=5)
 
-            def fake(args):
+            def fake(args, **_):
                 barrier.wait()
                 open(args[-1], "w").close()
                 return True
@@ -236,7 +236,7 @@ class ParallelBatchTests(unittest.TestCase):
                 open(os.path.join(root, name), "w").close()
             active, peak, lock = [0], [0], threading.Lock()
 
-            def fake(args):
+            def fake(args, **_):
                 with lock:
                     active[0] += 1
                     peak[0] = max(peak[0], active[0])
@@ -255,7 +255,7 @@ class ParallelBatchTests(unittest.TestCase):
                 open(os.path.join(root, name), "w").close()
             calls = []
 
-            def fake(args):
+            def fake(args, **_):
                 calls.append(args)
                 open(args[-1], "w").close()
                 return True
