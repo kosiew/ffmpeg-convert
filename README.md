@@ -26,6 +26,9 @@ Options:
 
 - `--no-recursive` / `-R` — only process the top folder
 - `--overwrite` / `-f` — replace existing converted files
+- `--jobs N` / `-j N` — convert up to N files at once (default 4; `-j 1` for one
+  at a time). If two files would produce the same output name (e.g. `clip.mp4`
+  and `clip.mov` → `clip.mkv`), only the first is converted.
 - `--delete-original` — move each original to the Trash after a successful conversion
   (recoverable with Finder's *Put Back*). This is the default for `mp4-to-mkv`;
   use `--keep-original` there to keep the original. `mov-to-mkv` and

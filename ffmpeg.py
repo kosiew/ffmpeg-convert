@@ -3,10 +3,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 import typer
 from send2trash import send2trash
+
+# Files converted at once by default. Remuxing is mostly disk-bound, so a few
+# parallel jobs help; many more just compete for the same disk.
+DEFAULT_JOBS = 4
 
 # Source extension -> target extension
 CONVERSIONS = {
@@ -158,15 +163,20 @@ def trash_file(path):
     send2trash(path)
 
 
+def target_path_for(source_path, target_extension=None):
+    """Return the output path: same folder and name, new extension."""
+    base_name, ext = os.path.splitext(source_path)
+    return base_name + (target_extension or CONVERSIONS[ext.lower()])
+
+
 def convert_file(source_path, overwrite=False, delete_original=False, target_extension=None, converter=None):
     """
     Convert a single file to its target format, saved next to the original.
 
     Returns "converted", "skipped" or "failed".
     """
-    base_name, ext = os.path.splitext(source_path)
-    ext = ext.lower()
-    target_path = base_name + (target_extension or CONVERSIONS[ext])
+    ext = os.path.splitext(source_path)[1].lower()
+    target_path = target_path_for(source_path, target_extension)
 
     if os.path.exists(target_path) and not overwrite:
         print(f"Skipped (already exists): {target_path}")
@@ -190,15 +200,6 @@ def convert_file(source_path, overwrite=False, delete_original=False, target_ext
     return "converted"
 
 
-def process_folder(folder_path, recursive=True, overwrite=False, delete_original=False, extensions=None, target_extension=None, converter=None):
-    """Convert supported files in a folder; return counts per outcome."""
-    counts = {"converted": 0, "skipped": 0, "failed": 0}
-    for source_path in find_convertible_files(folder_path, recursive, extensions):
-        outcome = convert_file(source_path, overwrite, delete_original, target_extension, converter)
-        counts[outcome] += 1
-    return counts
-
-
 app = typer.Typer(help="FFmpeg Conversion Utility - Convert media files in folders")
 
 
@@ -213,27 +214,57 @@ def convert(
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
     delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
     """
     Convert supported files in the specified folders.
     Converted files are saved next to the originals with the new extension.
     """
-    run_batch(folders, recursive, overwrite, delete_original, set(CONVERSIONS))
+    run_batch(folders, recursive, overwrite, delete_original, set(CONVERSIONS), jobs=jobs)
 
 
-def run_batch(folders, recursive, overwrite, delete_original, extensions, target_extension=None, converter=None):
+def run_batch(folders, recursive, overwrite, delete_original, extensions, target_extension=None, converter=None, jobs=DEFAULT_JOBS):
+    """Convert matching files in the folders, up to `jobs` at a time."""
     if shutil.which("ffmpeg") is None:
         typer.echo("Error: ffmpeg not found on PATH. Install it with `brew install ffmpeg`.")
         raise typer.Exit(1)
-    totals = {"converted": 0, "skipped": 0, "failed": 0}
+
+    sources = []
     for folder in folders:
         if os.path.isdir(folder):
             typer.echo(f"Scanning folder: {folder}")
-            counts = process_folder(folder, recursive, overwrite, delete_original, extensions, target_extension, converter)
-            for outcome, count in counts.items():
-                totals[outcome] += count
+            sources += find_convertible_files(folder, recursive, extensions)
         else:
             typer.echo(f"Warning: {folder} is not a valid directory.")
+
+    totals = {"converted": 0, "skipped": 0, "failed": 0}
+
+    # clip.mp4 and clip.mov both become clip.mkv; running them at once would
+    # write the same file twice, so only the first one is converted. Compare
+    # case-insensitively because macOS file names are.
+    claimed, tasks = set(), []
+    for source_path in sources:
+        key = target_path_for(source_path, target_extension).lower()
+        if key in claimed:
+            print(f"Skipped (another file converts to the same name): {source_path}")
+            totals["skipped"] += 1
+            continue
+        claimed.add(key)
+        tasks.append(source_path)
+
+    def convert_one(source_path):
+        return convert_file(source_path, overwrite, delete_original, target_extension, converter)
+
+    pool = ThreadPoolExecutor(max_workers=jobs)
+    try:
+        for outcome in pool.map(convert_one, tasks):
+            totals[outcome] += 1
+    except KeyboardInterrupt:
+        # Ctrl-C also stops the running ffmpeg processes; don't start queued ones
+        pool.shutdown(wait=True, cancel_futures=True)
+        raise
+    pool.shutdown()
+
     typer.echo(f"\nConverted {totals['converted']}, skipped {totals['skipped']}, failed {totals['failed']} file(s).")
     if totals["failed"]:
         raise typer.Exit(1)
@@ -251,8 +282,9 @@ def mp4_to_mkv(
     delete_original: bool = typer.Option(
         True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"
     ),
+    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
-    run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_to_mkv)
+    run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_to_mkv, jobs=jobs)
 
 
 @app.command(name="mov-to-mkv", help="Remux .mov files to .mkv with stream copy")
@@ -261,8 +293,9 @@ def mov_to_mkv(
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
     delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
-    run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_to_mkv)
+    run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_to_mkv, jobs=jobs)
 
 
 @app.command(name="avi-to-mkv", help="Remux .avi files to .mkv with stream copy")
@@ -271,8 +304,9 @@ def avi_to_mkv(
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
     delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
-    run_batch(folders, recursive, overwrite, delete_original, {".avi"}, ".mkv", convert_to_mkv)
+    run_batch(folders, recursive, overwrite, delete_original, {".avi"}, ".mkv", convert_to_mkv, jobs=jobs)
 
 
 if __name__ == "__main__":

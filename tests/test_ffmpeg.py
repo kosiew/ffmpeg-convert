@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -202,6 +203,67 @@ class ConvertTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(sorted(outputs), ["a.mkv", "b.mkv", "c.mkv", "d.jpg"])
             self.assertTrue(os.path.exists(os.path.join(root, "b.MOV")))
+
+
+
+class ParallelBatchTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = CliRunner()
+
+    def _run(self, root, args, fake):
+        with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake):
+            return self.runner.invoke(ffmpeg.app, [*args, root])
+
+    def test_files_convert_concurrently(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("a.mp4", "b.mp4"):
+                open(os.path.join(root, name), "w").close()
+            # Each fake ffmpeg waits for the other; this only passes if both run at once
+            barrier = threading.Barrier(2, timeout=5)
+
+            def fake(args):
+                barrier.wait()
+                open(args[-1], "w").close()
+                return True
+
+            result = self._run(root, ["mp4-to-mkv", "--keep-original", "-j", "2"], fake)
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Converted 2", result.output)
+
+    def test_jobs_one_runs_sequentially(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("a.mp4", "b.mp4", "c.mp4"):
+                open(os.path.join(root, name), "w").close()
+            active, peak, lock = [0], [0], threading.Lock()
+
+            def fake(args):
+                with lock:
+                    active[0] += 1
+                    peak[0] = max(peak[0], active[0])
+                open(args[-1], "w").close()
+                with lock:
+                    active[0] -= 1
+                return True
+
+            result = self._run(root, ["mp4-to-mkv", "--keep-original", "-j", "1"], fake)
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(peak[0], 1)
+
+    def test_sources_with_same_target_convert_once(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("clip.mp4", "Clip.MOV", "clip.avi"):
+                open(os.path.join(root, name), "w").close()
+            calls = []
+
+            def fake(args):
+                calls.append(args)
+                open(args[-1], "w").close()
+                return True
+
+            result = self._run(root, ["convert"], fake)
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("Converted 1, skipped 2", result.output)
 
 
 if __name__ == "__main__":
