@@ -16,6 +16,7 @@ class Mp4ToMkvTests(unittest.TestCase):
         command_names = [command.name for command in ffmpeg.app.registered_commands]
         self.assertIn("mp4-to-mkv", command_names)
         self.assertIn("mov-to-mkv", command_names)
+        self.assertIn("avi-to-mkv", command_names)
 
     def test_cli_converts_recursive_mov_only_and_preserves_timestamp(self):
         with tempfile.TemporaryDirectory() as root:
@@ -151,6 +152,35 @@ class Mp4ToMkvTests(unittest.TestCase):
             self.assertEqual(overwritten.exit_code, 0, overwritten.output)
             self.assertIn("Converted 1", overwritten.output)
             self.assertEqual(len(calls), 1)
+
+
+class AviToMkvTests(unittest.TestCase):
+    def test_avi_only_with_generated_timestamps(self):
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("film.avi", "other.mp4"):
+                open(os.path.join(root, name), "w").close()
+            calls = []
+
+            def fake_run_ffmpeg(args):
+                calls.append(args)
+                open(args[-1], "w").close()
+                return True
+
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake_run_ffmpeg):
+                result = runner.invoke(ffmpeg.app, ["avi-to-mkv", root])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][:4], ["-fflags", "+genpts", "-i", os.path.join(root, "film.avi")])
+            self.assertTrue(os.path.exists(os.path.join(root, "film.avi")))
+            self.assertTrue(os.path.exists(os.path.join(root, "film.mkv")))
+            self.assertFalse(os.path.exists(os.path.join(root, "other.mkv")))
+
+    def test_mpeg4_video_gets_unpack_bframes(self):
+        streams = [{"index": 0, "codec_type": "video", "codec_name": "mpeg4"}]
+        with patch.object(ffmpeg, "probe_streams", return_value=streams), patch.object(ffmpeg, "run_ffmpeg", return_value=True) as run:
+            self.assertTrue(ffmpeg.convert_to_mkv("x.avi", "x.mkv"))
+        self.assertIn("mpeg4_unpack_bframes", run.call_args_list[0].args[0])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Convert media files in folders with ffmpeg:
 - `.heic` → `.jpg`
 - `.mp4` → `.mkv` via stream copy (`mp4-to-mkv`)
 - `.mov` → `.mkv` via stream copy (`mov-to-mkv`)
+- `.avi` → `.mkv` via stream copy (`avi-to-mkv`)
 
 Converted files are saved next to the originals.
 
@@ -20,6 +21,7 @@ Converted files are saved next to the originals.
 uv run ffmpeg.py convert folder1 folder2 ...
 uv run ffmpeg.py mp4-to-mkv folder1 folder2 ...
 uv run ffmpeg.py mov-to-mkv folder1 folder2 ...
+uv run ffmpeg.py avi-to-mkv folder1 folder2 ...
 ```
 
 Options:
@@ -28,11 +30,12 @@ Options:
 - `--overwrite` / `-f` — replace existing converted files
 - `--delete-original` — move each original to the Trash after a successful conversion
   (recoverable with Finder's *Put Back*). This is the default for `mp4-to-mkv`;
-  use `--keep-original` there to keep the original.
+  use `--keep-original` there to keep the original. `mov-to-mkv` and
+  `avi-to-mkv` keep originals unless you pass `--delete-original`.
 
 ## Subtitles in MKV output
 
-`mp4-to-mkv` and `mov-to-mkv` handle subtitles in two ways:
+`mp4-to-mkv`, `mov-to-mkv` and `avi-to-mkv` handle subtitles in two ways:
 
 1. **Built-in tracks.** Each subtitle track is converted to SRT and stored inside
    the `.mkv`. (MP4's `mov_text` format can't go into MKV as-is.)
@@ -54,6 +57,12 @@ tracks therefore shows **6** entries in VLC's *Subtitle Track* menu:
 
 Each pair has the same text, so you can pick either one. To see only the
 built-in tracks, delete or move the `.srt` files.
+
+### AVI files
+
+AVI files (often DivX/Xvid) can lack timestamps, so `avi-to-mkv` generates them.
+DivX/Xvid video may also use "packed B-frames", which MKV can't store, so these
+are unpacked. Both steps are lossless; nothing is re-encoded.
 
 ### Cover art
 

@@ -61,22 +61,32 @@ def convert_heic_to_jpg(source_path, target_path):
     return run_ffmpeg(["-i", source_path, "-frames:v", "1", "-q:v", "2", target_path])
 
 
-def convert_mp4_to_mkv(source_path, target_path):
-    """Remux into MKV without re-encoding audio/video.
+def convert_to_mkv(source_path, target_path):
+    """Remux MP4/MOV/AVI into MKV without re-encoding audio/video.
 
     - mov_text subtitles can't be stored in Matroska, so subtitles become SRT.
     - Cover art (an MP4 "attached picture") is stored as an MKV attachment, not
       copied as a second video track: VLC renders embedded subtitles onto that
       one-frame track, so they never appear on the movie.
     - Data streams (e.g. MOV timecode) are dropped; Matroska can't hold them.
+    - AVI often lacks timestamps, so they are generated (+genpts), and
+      DivX/Xvid "packed B-frames" are unpacked, which Matroska requires.
     """
     streams = probe_streams(source_path)
+    is_avi = source_path.lower().endswith(".avi")
     with tempfile.TemporaryDirectory() as temp_dir:
         args = [
+            *(["-fflags", "+genpts"] if is_avi else []),
             "-i", source_path,
             "-map", "0:V?", "-map", "0:a?", "-map", "0:s?",
             "-c", "copy", "-c:s", "srt",
         ]
+        video_codecs = {
+            st.get("codec_name") for st in streams
+            if st.get("codec_type") == "video" and not st.get("disposition", {}).get("attached_pic")
+        }
+        if video_codecs == {"mpeg4"}:
+            args += ["-bsf:v", "mpeg4_unpack_bframes"]
         for n, (path, mime) in enumerate(extract_cover_art(source_path, streams, temp_dir)):
             args += [
                 "-attach", path,
@@ -155,7 +165,7 @@ def extract_srt_files(source_path, base_path, streams):
 CONVERTERS = {
     ".mov": convert_mov_to_mp4,
     ".heic": convert_heic_to_jpg,
-    ".mp4": convert_mp4_to_mkv,
+    ".mp4": convert_to_mkv,
 }
 
 
@@ -298,7 +308,7 @@ def mp4_to_mkv(
         True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"
     ),
 ):
-    run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_mp4_to_mkv)
+    run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_to_mkv)
 
 
 @app.command(name="mov-to-mkv", help="Remux .mov files to .mkv with stream copy")
@@ -306,9 +316,19 @@ def mov_to_mkv(
     folders: List[str] = typer.Argument(..., help="Folders containing MOV files"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
-    delete_original: bool = typer.Option(False, "--delete-original", help="Move original to Trash after successful conversion"),
+    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
 ):
-    run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_mp4_to_mkv)
+    run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_to_mkv)
+
+
+@app.command(name="avi-to-mkv", help="Remux .avi files to .mkv with stream copy")
+def avi_to_mkv(
+    folders: List[str] = typer.Argument(..., help="Folders containing AVI files"),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
+    overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
+    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+):
+    run_batch(folders, recursive, overwrite, delete_original, {".avi"}, ".mkv", convert_to_mkv)
 
 
 if __name__ == "__main__":
