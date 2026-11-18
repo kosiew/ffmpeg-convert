@@ -101,8 +101,10 @@ class Mp4ToMkvTests(unittest.TestCase):
             def fake(args):
                 open(args[-1], "w").close()
                 return args[-1].endswith("good.mkv")
-            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake):
+            with patch.object(ffmpeg.shutil, "which", return_value="ffmpeg"), patch.object(ffmpeg, "run_ffmpeg", side_effect=fake), \
+                    patch.object(ffmpeg, "trash_file", side_effect=os.remove) as trash:
                 result = self.runner.invoke(ffmpeg.app, ["mov-to-mkv", "--delete-original", root])
+            trash.assert_called_once_with(good)
             self.assertEqual(result.exit_code, 1)
             self.assertFalse(os.path.exists(good))
             self.assertTrue(os.path.exists(os.path.join(root, "good.mkv")))

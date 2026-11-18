@@ -1,9 +1,11 @@
+import json
 import os
 import shutil
 import subprocess
 from typing import List
 
 import typer
+from send2trash import send2trash
 
 # Source extension -> target extension
 CONVERSIONS = {
@@ -59,8 +61,62 @@ def convert_heic_to_jpg(source_path, target_path):
 
 
 def convert_mp4_to_mkv(source_path, target_path):
-    """Remux every stream from MP4 into MKV without re-encoding."""
-    return run_ffmpeg(["-i", source_path, "-map", "0", "-c", "copy", target_path])
+    """Remux every stream into MKV without re-encoding audio/video.
+
+    MP4/MOV text subtitles (mov_text) can't be stored in Matroska, so
+    subtitle streams are converted to SRT, which is lossless for plain text.
+    """
+    if not run_ffmpeg(["-i", source_path, "-map", "0", "-c", "copy", "-c:s", "srt", target_path]):
+        return False
+    extract_srt_files(source_path, os.path.splitext(target_path)[0])
+    return True
+
+
+TEXT_SUBTITLE_CODECS = {"mov_text", "subrip", "srt", "ass", "ssa", "webvtt", "text"}
+
+
+def subtitle_streams(source_path):
+    """Return (index, codec, language) for each subtitle stream, via ffprobe."""
+    command = [
+        "ffprobe", "-v", "error", "-select_streams", "s",
+        "-show_entries", "stream=index,codec_name:stream_tags=language",
+        "-of", "json", source_path,
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+        streams = json.loads(result.stdout or "{}").get("streams", [])
+    except (OSError, ValueError):
+        return []
+    return [
+        (s["index"], s.get("codec_name", ""), s.get("tags", {}).get("language", ""))
+        for s in streams
+    ]
+
+
+def extract_srt_files(source_path, base_path):
+    """
+    Save each text subtitle stream as a sidecar .srt next to the output.
+
+    Names follow the player convention: movie.srt, or movie.eng.srt when the
+    stream has a language tag; clashes get a numeric suffix (movie.eng.2.srt).
+    """
+    args, used = ["-i", source_path], []
+    for index, codec, language in subtitle_streams(source_path):
+        if codec not in TEXT_SUBTITLE_CODECS:
+            continue
+        stem = f"{base_path}.{language}" if language and language != "und" else base_path
+        name, n = f"{stem}.srt", 2
+        while name in used:
+            name, n = f"{stem}.{n}.srt", n + 1
+        used.append(name)
+        args += ["-map", f"0:{index}", "-c:s", "srt", name]
+    if not used:
+        return
+    if run_ffmpeg(args):
+        for name in used:
+            print(f"Saved subtitles: {os.path.basename(name)}")
+    else:
+        print(f"Warning: could not extract .srt subtitles from {source_path}")
 
 
 CONVERTERS = {
@@ -81,6 +137,11 @@ def find_convertible_files(folder_path, recursive=True, extensions=None):
         if not recursive:
             dirs.clear()
     return matches
+
+
+def trash_file(path):
+    """Move a file to the Trash so it can be recovered."""
+    send2trash(path)
 
 
 def convert_file(source_path, overwrite=False, delete_original=False, target_extension=None, converter=None):
@@ -110,8 +171,8 @@ def convert_file(source_path, overwrite=False, delete_original=False, target_ext
     os.utime(target_path, (stat.st_atime, stat.st_mtime))
 
     if delete_original:
-        os.remove(source_path)
-        print(f"Deleted original: {source_path}")
+        trash_file(source_path)
+        print(f"Moved original to Trash: {source_path}")
     return "converted"
 
 
@@ -201,7 +262,7 @@ def mp4_to_mkv(
         False, "--overwrite", "-f", help="Overwrite existing converted files"
     ),
     delete_original: bool = typer.Option(
-        True, "--delete-original", help="Delete original after successful conversion"
+        True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"
     ),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".mp4"}, ".mkv", convert_mp4_to_mkv)
@@ -212,7 +273,7 @@ def mov_to_mkv(
     folders: List[str] = typer.Argument(..., help="Folders containing MOV files"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
-    delete_original: bool = typer.Option(False, "--delete-original", help="Delete original after successful conversion"),
+    delete_original: bool = typer.Option(False, "--delete-original", help="Move original to Trash after successful conversion"),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_mp4_to_mkv)
 
