@@ -9,6 +9,19 @@ from typer.testing import CliRunner
 import ffmpeg
 
 
+# Commands move originals to the Trash by default; never touch the real Trash
+# from tests. Tests that check trashing patch trash_file themselves.
+_trash_patch = patch.object(ffmpeg, "trash_file", side_effect=os.remove)
+
+
+def setUpModule():
+    _trash_patch.start()
+
+
+def tearDownModule():
+    _trash_patch.stop()
+
+
 class Mp4ToMkvTests(unittest.TestCase):
     def setUp(self):
         self.runner = CliRunner()
@@ -174,7 +187,7 @@ class AviToMkvTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][:4], ["-fflags", "+genpts", "-i", os.path.join(root, "film.avi")])
-            self.assertTrue(os.path.exists(os.path.join(root, "film.avi")))
+            self.assertFalse(os.path.exists(os.path.join(root, "film.avi")))  # trashed by default
             self.assertTrue(os.path.exists(os.path.join(root, "film.mkv")))
             self.assertFalse(os.path.exists(os.path.join(root, "other.mkv")))
 
@@ -203,7 +216,8 @@ class ConvertTests(unittest.TestCase):
                 result = runner.invoke(ffmpeg.app, ["convert", root])
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(sorted(outputs), ["a.mkv", "b.mkv", "c.mkv", "d.jpg", "e.mkv"])
-            self.assertTrue(os.path.exists(os.path.join(root, "b.MOV")))
+            self.assertFalse(os.path.exists(os.path.join(root, "b.MOV")))  # trashed by default
+            self.assertTrue(os.path.exists(os.path.join(root, "notes.txt")))
 
 
 

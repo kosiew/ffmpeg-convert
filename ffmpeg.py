@@ -264,7 +264,7 @@ def convert(
     folders: List[str] = typer.Argument(..., help="Folders containing files to convert"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
-    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    delete_original: bool = typer.Option(True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
     jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
     """
@@ -372,7 +372,7 @@ def mov_to_mkv(
     folders: List[str] = typer.Argument(..., help="Folders containing MOV files"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
-    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    delete_original: bool = typer.Option(True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
     jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".mov"}, ".mkv", convert_to_mkv, jobs=jobs)
@@ -383,7 +383,7 @@ def avi_to_mkv(
     folders: List[str] = typer.Argument(..., help="Folders containing AVI files"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
-    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    delete_original: bool = typer.Option(True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
     jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".avi"}, ".mkv", convert_to_mkv, jobs=jobs)
@@ -394,7 +394,7 @@ def m4v_to_mkv(
     folders: List[str] = typer.Argument(..., help="Folders containing M4V files"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Also process subfolders"),
     overwrite: bool = typer.Option(False, "--overwrite", "-f", help="Overwrite existing converted files"),
-    delete_original: bool = typer.Option(False, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
+    delete_original: bool = typer.Option(True, "--delete-original/--keep-original", help="Move original to Trash after successful conversion"),
     jobs: int = typer.Option(DEFAULT_JOBS, "--jobs", "-j", min=1, help="Number of files to convert at once"),
 ):
     run_batch(folders, recursive, overwrite, delete_original, {".m4v"}, ".mkv", convert_to_mkv, jobs=jobs)

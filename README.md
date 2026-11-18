@@ -36,10 +36,9 @@ bar per file being converted, with percent done and time remaining (from
 ffmpeg's own progress output). Remuxing is fast, so small files may jump
 straight to done. When output is piped or redirected, the bars are hidden and
 only the normal messages print.
-- `--delete-original` — move each original to the Trash after a successful conversion
-  (recoverable with Finder's *Put Back*). This is the default for `mp4-to-mkv`;
-  use `--keep-original` there to keep the original. `m4v-to-mkv`, `mov-to-mkv`
-  and `avi-to-mkv` keep originals unless you pass `--delete-original`.
+- `--keep-original` — keep each original. By default, every command moves the
+  original to the Trash after a successful conversion (recoverable with Finder's
+  *Put Back*). Originals of failed or skipped files are never touched.
 
 ## Subtitles in MKV output
 
